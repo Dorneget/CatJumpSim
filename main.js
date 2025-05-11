@@ -1,17 +1,23 @@
-// Constants
+// Design Constants (based on original fixed values)
+const DESIGN_CANVAS_WIDTH = 800;
+const DESIGN_CANVAS_HEIGHT = 500;
+const INITIAL_PIXELS_PER_METER = 30;
+
+// Metric Constants for simulation objects
 const GRAVITY = 9.81; // m/s^2
-const PIXELS_PER_METER = 30; // Scale for drawing
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 500;
-const LEDGE_COLOR = '#795548'; // Brown
-const CAT_COLOR = '#FF9800'; // Orange
-const CAT_RADIUS_METERS = 0.2; // For visual representation
-const CAT_RADIUS_PX = CAT_RADIUS_METERS * PIXELS_PER_METER;
-const GROUND_COLOR = '#4CAF50'; // Green
-const GROUND_HEIGHT_PX = 30;
-const LEDGE_X_OFFSET_PX = 0; // Ledge starts from the left edge of canvas
-const LEDGE_WIDTH_PX = 50;
+const CAT_RADIUS_METERS = 0.2;
+const GROUND_HEIGHT_METERS = 1.0; // Equivalent to 30px at INITIAL_PIXELS_PER_METER
+const LEDGE_WIDTH_METERS = 50 / INITIAL_PIXELS_PER_METER; // Approx 1.67m
+const LEDGE_X_OFFSET_METERS = 0; // Ledge starts from the left edge of canvas in terms of world space
+
 const SIM_TIME_STEP = 0.016; // Simulation time step per animation frame (s)
+const CRITICAL_FALL_HEIGHT_METERS = 7.0;
+
+// Colors
+const LEDGE_COLOR = '#795548';
+const CAT_COLOR = '#FF9800';
+const DANGER_CAT_COLOR = '#FF0000';
+const GROUND_COLOR = '#4CAF50';
 
 // DOM Elements
 const canvas = document.getElementById('simulationCanvas');
@@ -32,10 +38,24 @@ const resultRangeSpan = document.getElementById('resultRange');
 const resultMaxHeightSpan = document.getElementById('resultMaxHeight');
 const resultTimeOfFlightSpan = document.getElementById('resultTimeOfFlight');
 
+const safetyAdvisoryPanelDiv = document.getElementById('safetyAdvisoryPanelDiv');
+const safetyAdvisoryMessageElement = document.getElementById('safetyAdvisoryMessage');
+
+// Dynamic Viewport & Scaling Variables
+let DESIGN_ASPECT_RATIO = DESIGN_CANVAS_WIDTH / DESIGN_CANVAS_HEIGHT;
+let DESIGN_WORLD_WIDTH_METERS = DESIGN_CANVAS_WIDTH / INITIAL_PIXELS_PER_METER;
+
+let currentPixelsPerMeter = INITIAL_PIXELS_PER_METER;
+let currentCatRadiusPx = CAT_RADIUS_METERS * currentPixelsPerMeter;
+let currentGroundHeightPx = GROUND_HEIGHT_METERS * currentPixelsPerMeter;
+let currentLedgeWidthPx = LEDGE_WIDTH_METERS * currentPixelsPerMeter;
+let currentLedgeXOffsetPx = LEDGE_X_OFFSET_METERS * currentPixelsPerMeter;
+
+
 // Simulation State
 let animationFrameId = null;
 let simTime = 0;
-let catPath = []; // To store points for drawing trajectory
+let catPath = [];
 
 let currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value);
 let currentLaunchSpeed_mps = parseFloat(launchSpeedSlider.value);
@@ -52,26 +72,26 @@ function updateSliderValueDisplay(slider, displayElement, unit = '') {
 
 // Drawing Functions
 function clearCanvas() {
-    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 function drawGround() {
     ctx.fillStyle = GROUND_COLOR;
-    ctx.fillRect(0, CANVAS_HEIGHT - GROUND_HEIGHT_PX, CANVAS_WIDTH, GROUND_HEIGHT_PX);
+    ctx.fillRect(0, canvas.height - currentGroundHeightPx, canvas.width, currentGroundHeightPx);
 }
 
 function drawLedge(ledgeHeight_m) {
-    const ledgeHeight_px = ledgeHeight_m * PIXELS_PER_METER;
-    const ledgeY_px = CANVAS_HEIGHT - GROUND_HEIGHT_PX - ledgeHeight_px;
+    const ledgeHeight_px = ledgeHeight_m * currentPixelsPerMeter;
+    const ledgeY_px = canvas.height - currentGroundHeightPx - ledgeHeight_px;
 
     ctx.fillStyle = LEDGE_COLOR;
-    ctx.fillRect(LEDGE_X_OFFSET_PX, ledgeY_px, LEDGE_WIDTH_PX, ledgeHeight_px);
+    ctx.fillRect(currentLedgeXOffsetPx, ledgeY_px, currentLedgeWidthPx, ledgeHeight_px);
 }
 
-function drawCat(catCanvasX, catCanvasY) {
+function drawCat(catCanvasX, catCanvasY, color) {
     ctx.beginPath();
-    ctx.arc(catCanvasX, catCanvasY, CAT_RADIUS_PX, 0, Math.PI * 2);
-    ctx.fillStyle = CAT_COLOR;
+    ctx.arc(catCanvasX, catCanvasY, currentCatRadiusPx, 0, Math.PI * 2);
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.closePath();
 }
@@ -89,11 +109,34 @@ function drawTrajectory(points) {
     ctx.closePath();
 }
 
+// Feline Safety Module Logic
+function assessFallSafety(fall_height_m) {
+    const isAdverseEvent = fall_height_m > CRITICAL_FALL_HEIGHT_METERS;
+    let outcomeMessage;
+
+    if (isAdverseEvent) {
+        outcomeMessage = `ALERT: A fall from ${fall_height_m.toFixed(1)} meters exceeds the critical safety threshold of ${CRITICAL_FALL_HEIGHT_METERS.toFixed(1)} meters. This height presents a high risk of severe injury or fatality to the cat.`;
+    } else {
+        outcomeMessage = `NOTICE: A fall from ${fall_height_m.toFixed(1)} meters is below the critical safety threshold. While the immediate risk of severe injury is lower, all falls can potentially cause harm. Monitor the cat.`;
+    }
+    return { isAdverseEvent, outcomeMessage };
+}
+
+function displaySafetyAdvisory(safetyInfo) {
+    safetyAdvisoryMessageElement.textContent = safetyInfo.outcomeMessage;
+    safetyAdvisoryPanelDiv.classList.remove('adverse-event', 'notice-event');
+    if (safetyInfo.isAdverseEvent) {
+        safetyAdvisoryPanelDiv.classList.add('adverse-event');
+    } else {
+        safetyAdvisoryPanelDiv.classList.add('notice-event');
+    }
+}
+
 // Physics and Simulation Logic
 function calculateInitialVelocities(speed_mps, angle_deg) {
     const angle_rad = degToRad(angle_deg);
     const vx0 = speed_mps * Math.cos(angle_rad);
-    const vy0 = speed_mps * Math.sin(angle_rad); // Positive y is upwards in physics model
+    const vy0 = speed_mps * Math.sin(angle_rad);
     return { vx0, vy0 };
 }
 
@@ -101,6 +144,8 @@ function resetResultsDisplay() {
     resultRangeSpan.textContent = '--';
     resultMaxHeightSpan.textContent = '--';
     resultTimeOfFlightSpan.textContent = '--';
+    safetyAdvisoryMessageElement.textContent = '';
+    safetyAdvisoryPanelDiv.className = 'safety-advisory-panel';
 }
 
 function displayResults(range_m, maxHeight_m, timeOfFlight_s) {
@@ -109,59 +154,91 @@ function displayResults(range_m, maxHeight_m, timeOfFlight_s) {
     resultTimeOfFlightSpan.textContent = timeOfFlight_s.toFixed(2);
 }
 
+// Viewport Management
+function redrawInitialSceneState() {
+    clearCanvas();
+    drawGround();
+    drawLedge(currentLedgeHeight_m);
+    const launchPointCanvasX = currentLedgeXOffsetPx + currentLedgeWidthPx;
+    const launchPointCanvasY = canvas.height - currentGroundHeightPx - (currentLedgeHeight_m * currentPixelsPerMeter);
+    drawCat(launchPointCanvasX, launchPointCanvasY, CAT_COLOR);
+}
+
+function handleResize() {
+    const screenWidth = window.innerWidth;
+    // Use clientHeight of documentElement for more reliable viewport height
+    const screenHeight = document.documentElement.clientHeight; 
+    
+    const simulationAreaWrapper = document.querySelector('.simulation-area-wrapper');
+    const availableWidth = simulationAreaWrapper.clientWidth;
+    const availableHeight = simulationAreaWrapper.clientHeight;
+
+    let newCanvasWidth, newCanvasHeight;
+    const screenAspectRatio = availableWidth / availableHeight;
+
+    if (screenAspectRatio > DESIGN_ASPECT_RATIO) { // Screen is wider than design (pillarbox)
+        newCanvasHeight = availableHeight;
+        newCanvasWidth = newCanvasHeight * DESIGN_ASPECT_RATIO;
+    } else { // Screen is taller or same aspect ratio (letterbox)
+        newCanvasWidth = availableWidth;
+        newCanvasHeight = newCanvasWidth / DESIGN_ASPECT_RATIO;
+    }
+
+    canvas.width = newCanvasWidth;
+    canvas.height = newCanvasHeight;
+
+    currentPixelsPerMeter = canvas.width / DESIGN_WORLD_WIDTH_METERS;
+    currentCatRadiusPx = CAT_RADIUS_METERS * currentPixelsPerMeter;
+    currentGroundHeightPx = GROUND_HEIGHT_METERS * currentPixelsPerMeter;
+    currentLedgeWidthPx = LEDGE_WIDTH_METERS * currentPixelsPerMeter;
+    currentLedgeXOffsetPx = LEDGE_X_OFFSET_METERS * currentPixelsPerMeter;
+
+    if (!animationFrameId) {
+        redrawInitialSceneState();
+    }
+    // If animation is running, the next frame will use new dimensions/scales
+}
+
+function setupViewport() {
+    handleResize(); // Initial call
+    window.addEventListener('resize', handleResize);
+    // orientationchange is often covered by resize, but can be added for robustness if needed
+    // window.addEventListener('orientationchange', handleResize);
+}
+
+
+// Core Simulation Control
 function animationLoop() {
     simTime += SIM_TIME_STEP;
 
     const { vx0, vy0 } = calculateInitialVelocities(currentLaunchSpeed_mps, currentLaunchAngle_deg);
-
-    // Calculate displacement from launch point (physics coordinates, y is up)
     const x_displacement_m = vx0 * simTime;
     const y_displacement_m = vy0 * simTime - 0.5 * GRAVITY * simTime * simTime;
-
-    // Absolute cat position in meters from ground
     const catAbsoluteY_m = currentLedgeHeight_m + y_displacement_m;
 
-    // Convert to canvas coordinates (y is down)
-    // Launch point on canvas
-    const launchPointCanvasX = LEDGE_X_OFFSET_PX + LEDGE_WIDTH_PX;
-    const launchPointCanvasY = CANVAS_HEIGHT - GROUND_HEIGHT_PX - (currentLedgeHeight_m * PIXELS_PER_METER);
-
-    const catCanvasX = launchPointCanvasX + (x_displacement_m * PIXELS_PER_METER);
-    // catCanvasY is relative to the top of the canvas.
-    // y_displacement_m is positive upwards, so subtract from launchPointCanvasY.
-    const catCanvasY = launchPointCanvasY - (y_displacement_m * PIXELS_PER_METER);
+    const launchPointCanvasX = currentLedgeXOffsetPx + currentLedgeWidthPx;
+    const launchPointCanvasY = canvas.height - currentGroundHeightPx - (currentLedgeHeight_m * currentPixelsPerMeter);
+    
+    const catCanvasX = launchPointCanvasX + (x_displacement_m * currentPixelsPerMeter);
+    const catCanvasY = launchPointCanvasY - (y_displacement_m * currentPixelsPerMeter);
 
     catPath.push({ x: catCanvasX, y: catCanvasY });
 
-    // Drawing
     clearCanvas();
     drawGround();
     drawLedge(currentLedgeHeight_m);
     drawTrajectory(catPath);
-    drawCat(catCanvasX, catCanvasY);
+    drawCat(catCanvasX, catCanvasY, CAT_COLOR);
 
-    // Check for ground collision (cat's bottom hits ground surface)
-    const groundSurfaceCanvasY = CANVAS_HEIGHT - GROUND_HEIGHT_PX;
-    if (catCanvasY + CAT_RADIUS_PX >= groundSurfaceCanvasY || catAbsoluteY_m - CAT_RADIUS_METERS <= 0) {
+    const groundSurfaceCanvasY = canvas.height - currentGroundHeightPx;
+    if (catCanvasY + currentCatRadiusPx >= groundSurfaceCanvasY || catAbsoluteY_m - CAT_RADIUS_METERS <= 0) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
         simulateButton.disabled = false;
 
-        // Final calculations for results
-        // Time of flight can be approximated by current simTime or calculated more accurately
-        // For simplicity, use simTime when collision detected.
         const totalTimeOfFlight = simTime;
         const actualRange_m = vx0 * totalTimeOfFlight;
         
-        let maxReachedHeight_m = currentLedgeHeight_m;
-        if (vy0 > 0) {
-            maxReachedHeight_m = currentLedgeHeight_m + (vy0 * vy0) / (2 * GRAVITY);
-        }
-        // If the cat was launched downwards, the max height is the ledge height.
-        // Or, iterate through path to find min canvas Y / max physics Y.
-        // The formula above is for max height above launch point.
-        
-        // More accurate max height from path:
         let maxSimHeightAboveGround = currentLedgeHeight_m;
         for(let t_step = 0; t_step <= totalTimeOfFlight; t_step += SIM_TIME_STEP) {
             const y_disp_step = vy0 * t_step - 0.5 * GRAVITY * t_step * t_step;
@@ -170,22 +247,29 @@ function animationLoop() {
                 maxSimHeightAboveGround = h_step;
             }
         }
+        maxSimHeightAboveGround = Math.max(0, maxSimHeightAboveGround);
 
+        const safetyInfo = assessFallSafety(maxSimHeightAboveGround);
+        displaySafetyAdvisory(safetyInfo);
         displayResults(actualRange_m, maxSimHeightAboveGround, totalTimeOfFlight);
+
+        clearCanvas();
+        drawGround();
+        drawLedge(currentLedgeHeight_m);
+        drawTrajectory(catPath);
+        drawCat(catCanvasX, catCanvasY, safetyInfo.isAdverseEvent ? DANGER_CAT_COLOR : CAT_COLOR);
         return;
     }
     
-    // Stop if cat goes way off screen horizontally
-    if (catCanvasX > CANVAS_WIDTH + CAT_RADIUS_PX * 5 || catCanvasX < -CAT_RADIUS_PX * 5) {
+    if (catCanvasX > canvas.width + currentCatRadiusPx * 5 || catCanvasX < -currentCatRadiusPx * 5) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
         simulateButton.disabled = false;
-        // Display results based on current simTime if desired, or mark as off-screen
-        console.log("Cat flew off-screen horizontally.");
-        resetResultsDisplay(); // Or partial results
+        resetResultsDisplay();
+        safetyAdvisoryMessageElement.textContent = 'Cat flew off-screen. Simulation stopped.';
+        safetyAdvisoryPanelDiv.className = 'safety-advisory-panel notice-event';
         return;
     }
-
 
     animationFrameId = requestAnimationFrame(animationLoop);
 }
@@ -198,22 +282,12 @@ function startSimulation() {
     catPath = [];
     resetResultsDisplay();
 
-    // Get current values from sliders
     currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value);
     currentLaunchSpeed_mps = parseFloat(launchSpeedSlider.value);
     currentLaunchAngle_deg = parseFloat(launchAngleSlider.value);
 
     simulateButton.disabled = true;
-
-    // Initial draw before animation starts
-    clearCanvas();
-    drawGround();
-    drawLedge(currentLedgeHeight_m);
-    const launchPointCanvasX = LEDGE_X_OFFSET_PX + LEDGE_WIDTH_PX;
-    const launchPointCanvasY = CANVAS_HEIGHT - GROUND_HEIGHT_PX - (currentLedgeHeight_m * PIXELS_PER_METER);
-    drawCat(launchPointCanvasX, launchPointCanvasY);
-
-
+    redrawInitialSceneState(); // Draw initial state before starting animation
     animationFrameId = requestAnimationFrame(animationLoop);
 }
 
@@ -225,51 +299,41 @@ function resetSimulation() {
     simTime = 0;
     catPath = [];
 
-    // Reset sliders to default values
     ledgeHeightSlider.value = "2.0";
     launchSpeedSlider.value = "5.0";
     launchAngleSlider.value = "30";
 
-    // Update display spans
     updateSliderValueDisplay(ledgeHeightSlider, ledgeHeightValueSpan, ' m');
     updateSliderValueDisplay(launchSpeedSlider, launchSpeedValueSpan, ' m/s');
     updateSliderValueDisplay(launchAngleSlider, launchAngleValueSpan, '°');
     
-    currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value); // Update internal state too
+    currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value);
+    currentLaunchSpeed_mps = parseFloat(launchSpeedSlider.value);
+    currentLaunchAngle_deg = parseFloat(launchAngleSlider.value);
 
     resetResultsDisplay();
     simulateButton.disabled = false;
-
-    // Draw initial scene
-    clearCanvas();
-    drawGround();
-    drawLedge(currentLedgeHeight_m);
-    const launchPointCanvasX = LEDGE_X_OFFSET_PX + LEDGE_WIDTH_PX;
-    const launchPointCanvasY = CANVAS_HEIGHT - GROUND_HEIGHT_PX - (currentLedgeHeight_m * PIXELS_PER_METER);
-    drawCat(launchPointCanvasX, launchPointCanvasY);
+    redrawInitialSceneState();
 }
 
 // Event Listeners
 ledgeHeightSlider.addEventListener('input', () => {
     updateSliderValueDisplay(ledgeHeightSlider, ledgeHeightValueSpan, ' m');
-    // If not simulating, update the static drawing of the ledge
+    currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value);
     if (!animationFrameId) {
-        currentLedgeHeight_m = parseFloat(ledgeHeightSlider.value);
-        clearCanvas();
-        drawGround();
-        drawLedge(currentLedgeHeight_m);
-        const launchPointCanvasX = LEDGE_X_OFFSET_PX + LEDGE_WIDTH_PX;
-        const launchPointCanvasY = CANVAS_HEIGHT - GROUND_HEIGHT_PX - (currentLedgeHeight_m * PIXELS_PER_METER);
-        drawCat(launchPointCanvasX, launchPointCanvasY);
+        redrawInitialSceneState();
+        resetResultsDisplay(); 
     }
 });
 
 launchSpeedSlider.addEventListener('input', () => {
     updateSliderValueDisplay(launchSpeedSlider, launchSpeedValueSpan, ' m/s');
+    currentLaunchSpeed_mps = parseFloat(launchSpeedSlider.value);
 });
 
 launchAngleSlider.addEventListener('input', () => {
     updateSliderValueDisplay(launchAngleSlider, launchAngleValueSpan, '°');
+    currentLaunchAngle_deg = parseFloat(launchAngleSlider.value);
 });
 
 simulateButton.addEventListener('click', startSimulation);
@@ -277,16 +341,24 @@ resetButton.addEventListener('click', resetSimulation);
 
 // Initialization
 function init() {
-    canvas.width = CANVAS_WIDTH;
-    canvas.height = CANVAS_HEIGHT;
+    // Calculate design constants based on initial values
+    DESIGN_ASPECT_RATIO = DESIGN_CANVAS_WIDTH / DESIGN_CANVAS_HEIGHT;
+    DESIGN_WORLD_WIDTH_METERS = DESIGN_CANVAS_WIDTH / INITIAL_PIXELS_PER_METER;
 
-    // Set initial slider display values
+    // Initialize dynamic pixel values based on initial constants
+    currentPixelsPerMeter = INITIAL_PIXELS_PER_METER;
+    currentCatRadiusPx = CAT_RADIUS_METERS * currentPixelsPerMeter;
+    currentGroundHeightPx = GROUND_HEIGHT_METERS * currentPixelsPerMeter;
+    currentLedgeWidthPx = LEDGE_WIDTH_METERS * currentPixelsPerMeter;
+    currentLedgeXOffsetPx = LEDGE_X_OFFSET_METERS * currentPixelsPerMeter;
+    
+    setupViewport(); // This will call handleResize once to set initial canvas size
+
     updateSliderValueDisplay(ledgeHeightSlider, ledgeHeightValueSpan, ' m');
     updateSliderValueDisplay(launchSpeedSlider, launchSpeedValueSpan, ' m/s');
     updateSliderValueDisplay(launchAngleSlider, launchAngleValueSpan, '°');
 
-    resetSimulation(); // Call reset to draw initial state
+    resetSimulation(); // Set initial state and draw
 }
 
-// Run initialization when the script loads
 init();

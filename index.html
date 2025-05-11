@@ -2,43 +2,54 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Cat Jump Simulation</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <h1>Cat Jump Simulation</h1>
-
-        <div class="simulation-area">
-            <canvas id="simulationCanvas"></canvas>
+        <div class="header-panel">
+            <h1>Cat Jump Simulation</h1>
         </div>
 
-        <div class="controls-panel">
-            <h2>Controls</h2>
-            <div class="control-group">
-                <label for="ledgeHeight">Ledge Height (m): <span id="ledgeHeightValue">2.0</span></label>
-                <input type="range" id="ledgeHeight" min="1.0" max="10.0" value="2.0" step="0.1">
-            </div>
-            <div class="control-group">
-                <label for="launchSpeed">Initial Launch Speed (m/s): <span id="launchSpeedValue">5.0</span></label>
-                <input type="range" id="launchSpeed" min="1.0" max="15.0" value="5.0" step="0.1">
-            </div>
-            <div class="control-group">
-                <label for="launchAngle">Launch Angle (&deg;): <span id="launchAngleValue">30</span></label>
-                <input type="range" id="launchAngle" min="0" max="90" value="30" step="1">
-            </div>
-            <div class="buttons">
-                <button id="simulateButton">Simulate</button>
-                <button id="resetButton">Reset</button>
+        <div class="simulation-area-wrapper">
+            <div class="simulation-area">
+                <canvas id="simulationCanvas"></canvas>
             </div>
         </div>
 
-        <div class="results-panel">
-            <h2>Results</h2>
-            <p>Horizontal Distance (Range): <span id="resultRange">--</span> m</p>
-            <p>Maximum Height (from ground): <span id="resultMaxHeight">--</span> m</p>
-            <p>Total Time of Flight: <span id="resultTimeOfFlight">--</span> s</p>
+        <div class="ui-panels-wrapper">
+            <div class="controls-panel">
+                <h2>Controls</h2>
+                <div class="control-group">
+                    <label for="ledgeHeight">Ledge Height (m): <span id="ledgeHeightValue">2.0</span></label>
+                    <input type="range" id="ledgeHeight" min="1.0" max="10.0" value="2.0" step="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="launchSpeed">Initial Launch Speed (m/s): <span id="launchSpeedValue">5.0</span></label>
+                    <input type="range" id="launchSpeed" min="1.0" max="15.0" value="5.0" step="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="launchAngle">Launch Angle (&deg;): <span id="launchAngleValue">30</span></label>
+                    <input type="range" id="launchAngle" min="0" max="90" value="30" step="1">
+                </div>
+                <div class="buttons">
+                    <button id="simulateButton">Simulate</button>
+                    <button id="resetButton">Reset</button>
+                </div>
+            </div>
+
+            <div class="results-panel">
+                <h2>Results</h2>
+                <p>Horizontal Distance (Range): <span id="resultRange">--</span> m</p>
+                <p>Maximum Height (from ground): <span id="resultMaxHeight">--</span> m</p>
+                <p>Total Time of Flight: <span id="resultTimeOfFlight">--</span> s</p>
+            </div>
+
+            <div class="safety-advisory-panel" id="safetyAdvisoryPanelDiv">
+                <h3>Feline Safety Advisory</h3>
+                <p id="safetyAdvisoryMessage"></p>
+            </div>
         </div>
     </div>
 
